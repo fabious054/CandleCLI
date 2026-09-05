@@ -1,0 +1,30 @@
+[package]
+name = "candlecli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "candlecli"
+path = "src/main.rs"
+
+[lib]
+name = "candlecli"
+path = "src/lib.rs"
+
+[dependencies]
+candle-core = { git = "https://github.com/huggingface/candle" }
+candle-nn = { git = "https://github.com/huggingface/candle" }
+candle-transformers = { git = "https://github.com/huggingface/candle" }
+# Must track candle-core's tokenizers (0.23.x): the `TokenizerFromGguf`
+# impl in candle-core is on *that* Tokenizer type, so a mismatched version
+# would not see it.
+tokenizers = "0.23"
+crossterm = "0.27"
+rustyline = "14"
+rand = "0.8"
+
+# Build dependencies optimized even in the dev profile — candle's quantized
+# matmul kernels are unusably slow at opt-level 0. CandleCLI's own code stays
+# unoptimized and debuggable. See DEVELOPMENT.md.
+[profile.dev.package."*"]
+opt-level = 3
