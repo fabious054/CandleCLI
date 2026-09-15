@@ -110,6 +110,12 @@ src/
   numerado em `docs/adr/`, no formato `ADR-XXXX-titulo-curto.md`. O Claude
   Code propõe, a decisão sai na conversa de produto, só então implementa.
 
+## Convenções de commit
+
+- Nunca incluir `Co-Authored-By` nos commits — o projeto é do Fabio.
+- Mensagens de commit em inglês, no formato `<tipo>: <descrição curta>`.
+- Tipos: `feat`, `fix`, `improve`, `chore`, `docs`.
+
 ## Não fazer
 
 - Não usar kalosm, llama.cpp, Ollama ou qualquer abstração externa.
