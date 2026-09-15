@@ -53,8 +53,13 @@ pub struct SamplerConfig {
     pub top_k: usize,
     /// Active strategy.
     pub strategy: SamplingStrategy,
-    /// RNG seed, for reproducible sampling.
-    pub seed: u64,
+    /// RNG seed. `None` (the default) means "don't pin it" — [`build`]
+    /// draws fresh entropy each time it's called, so a bare
+    /// `SamplerConfig::default()` gives genuine per-call randomness. The
+    /// CLI resolves `None` to a random `Some(_)` once at startup and holds
+    /// it for the session (see `crate::cli` / `/seed`) — set `Some(n)`
+    /// yourself for reproducible output.
+    pub seed: Option<u64>,
     /// Generation budget: max tokens produced per `infer` call.
     pub max_new_tokens: usize,
 }
@@ -66,7 +71,7 @@ impl Default for SamplerConfig {
             top_p: 0.95,
             top_k: 40,
             strategy: SamplingStrategy::Temperature,
-            seed: 42,
+            seed: None,
             max_new_tokens: 512,
         }
     }
@@ -78,24 +83,29 @@ pub trait Sampler {
     fn sample(&mut self, logits: &[f32]) -> u32;
 }
 
-/// Instantiate the strategy selected by `config`.
+/// Instantiate the strategy selected by `config`. `config.seed == None`
+/// draws a fresh one right here — see the field's doc comment.
 pub fn build(config: &SamplerConfig) -> Box<dyn Sampler> {
+    let seed = config.seed.unwrap_or_else(random_seed);
     match config.strategy {
         SamplingStrategy::Greedy => Box::new(greedy::Greedy),
         SamplingStrategy::Temperature => {
-            Box::new(temperature::Temperature::new(config.temperature, config.seed))
+            Box::new(temperature::Temperature::new(config.temperature, seed))
         }
-        SamplingStrategy::TopK => Box::new(top_k::TopK::new(
-            config.top_k,
-            config.temperature,
-            config.seed,
-        )),
-        SamplingStrategy::TopP => Box::new(top_p::TopP::new(
-            config.top_p,
-            config.temperature,
-            config.seed,
-        )),
+        SamplingStrategy::TopK => Box::new(top_k::TopK::new(config.top_k, config.temperature, seed)),
+        SamplingStrategy::TopP => Box::new(top_p::TopP::new(config.top_p, config.temperature, seed)),
     }
+}
+
+/// Draw a seed from the system clock. Not cryptographic — just enough
+/// entropy that two sessions (or two calls, if nothing pins a seed) don't
+/// replay the same sampling draws.
+pub(crate) fn random_seed() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
 }
 
 // --- shared helpers -------------------------------------------------------

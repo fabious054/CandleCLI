@@ -9,6 +9,8 @@
 //! - `/temperature <f32>`              — set sampling temperature
 //! - `/top-p <f32>`                    — set top-p
 //! - `/top-k <usize>`                  — set top-k
+//! - `/seed <u64>`                     — pin the RNG seed (reproducible)
+//! - `/seed random`                    — unpin it (fresh seed every session)
 //! - `/reset`                          — clear conversation history
 //! - `/help`                           — list available commands
 //! - `/quit` | `/exit`                 — leave
@@ -23,6 +25,8 @@ pub enum Command {
     Temperature(f32),
     TopP(f32),
     TopK(usize),
+    /// `Some(n)` pins the seed; `None` is `/seed random` — unpin it.
+    Seed(Option<u64>),
     Reset,
     Help,
     Quit,
@@ -65,6 +69,14 @@ pub fn parse(line: &str) -> Parsed {
         "/top-k" => match arg.parse::<usize>() {
             Ok(v) => Parsed::Command(Command::TopK(v)),
             Err(_) => Parsed::Invalid("uso: /top-k <valor>".into()),
+        },
+        "/seed" => match arg {
+            "" => Parsed::Invalid("uso: /seed <valor> | /seed random".into()),
+            "random" => Parsed::Command(Command::Seed(None)),
+            v => match v.parse::<u64>() {
+                Ok(n) => Parsed::Command(Command::Seed(Some(n))),
+                Err(_) => Parsed::Invalid("uso: /seed <valor> | /seed random".into()),
+            },
         },
 
         "/reset" => Parsed::Command(Command::Reset),
@@ -121,6 +133,8 @@ pub const HELP_TEXT: &str = "\
 /temperature <valor>           define a temperatura de sampling
 /top-p <valor>                 define o top-p
 /top-k <valor>                 define o top-k
+/seed <valor>                  fixa a seed do RNG (reprodutível)
+/seed random                   remove a seed fixa (aleatória por sessão)
 /reset                         limpa o histórico da conversa
 /help                          mostra esta ajuda
 /quit, /exit                   encerra";

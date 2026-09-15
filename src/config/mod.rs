@@ -26,13 +26,18 @@ pub struct ModelSection {
     pub default: Option<String>,
 }
 
-/// `[sampling]` — mirrors the knobs in [`SamplerConfig`] (minus `seed`,
-/// which Escopo 2 does not persist).
+/// `[sampling]` — mirrors the knobs in [`SamplerConfig`].
 ///
 /// Stored as `f64` (TOML's native float), not `f32`: widening `0.8_f32` to
 /// `f64` for serialization prints as `0.800000011920929` — harmless but
 /// ugly in a hand-edited file. The `f32` <-> `f64` cast happens only at the
 /// [`SamplerConfig`] boundary.
+///
+/// `seed` is absent from the TOML by default (`None`): a fresh one is
+/// drawn at CLI startup and held for the session, so a repeated prompt
+/// still varies run to run without pinning every session to one sequence
+/// of draws forever. `/seed <n>` sets it (reproducible); `/seed random`
+/// clears it back to this default.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SamplingSection {
@@ -40,6 +45,8 @@ pub struct SamplingSection {
     pub top_p: f64,
     pub top_k: usize,
     pub strategy: SamplingStrategy,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
 }
 
 impl Default for SamplingSection {
@@ -50,6 +57,7 @@ impl Default for SamplingSection {
             top_p: round_f32(d.top_p),
             top_k: d.top_k,
             strategy: d.strategy,
+            seed: d.seed,
         }
     }
 }
@@ -115,21 +123,30 @@ impl CandleConfig {
         Ok(())
     }
 
-    /// Build a [`SamplerConfig`] from the persisted sampling/behavior
-    /// sections. `seed` is not persisted — always the crate default.
+    /// Build a [`SamplerConfig`] from the persisted sections. `seed` passes
+    /// through as-is — `None` if absent from `config.toml`. Resolving
+    /// `None` to a random, session-held value is the CLI's job
+    /// (`crate::cli::run`), not this crate-facing constructor's.
     pub fn sampler_config(&self) -> SamplerConfig {
         SamplerConfig {
             temperature: self.sampling.temperature as f32,
             top_p: self.sampling.top_p as f32,
             top_k: self.sampling.top_k,
             strategy: self.sampling.strategy,
-            seed: SamplerConfig::default().seed,
+            seed: self.sampling.seed,
             max_new_tokens: self.behavior.max_new_tokens,
         }
     }
 
     /// Mirror a live [`SamplerConfig`] back into the persisted sections
     /// (called whenever `/temperature`, `/top-p` or `/top-k` change it).
+    ///
+    /// Deliberately leaves `sampling.seed` alone: those three commands are
+    /// about the sampling knobs, not the seed, and the CLI resolves
+    /// `SamplerConfig.seed` to a random value every session — syncing it
+    /// here would silently pin that resolved value into `config.toml` the
+    /// next time the user touched an unrelated setting. `/seed` is the only
+    /// thing that should ever write `sampling.seed`.
     pub fn sync_sampler(&mut self, sampler: &SamplerConfig) {
         self.sampling.temperature = round_f32(sampler.temperature);
         self.sampling.top_p = round_f32(sampler.top_p);

@@ -28,7 +28,7 @@ use helper::PromptHelper;
 
 use crate::config::{paths, paths::Paths, CandleConfig};
 use crate::model::CandleModel;
-use crate::sampler::{SamplerConfig, SamplingStrategy};
+use crate::sampler::{self, SamplerConfig, SamplingStrategy};
 use crate::session::{Role, Session};
 
 use commands::{Command, Parsed};
@@ -110,8 +110,19 @@ pub fn run() {
     };
     editor.set_helper(Some(PromptHelper));
 
+    // `config.toml`'s `sampling.seed` is `None` by default (see
+    // `SamplingSection`'s doc comment): resolve it to a fresh random seed
+    // now and hold it for the rest of this session, rather than letting
+    // `sampler::build` re-roll one on every single reply — repeating a
+    // prompt within a session still varies run to run, but stays
+    // consistent while you're comparing outputs against one setting.
+    let mut sampler = config.sampler_config();
+    if sampler.seed.is_none() {
+        sampler.seed = Some(sampler::random_seed());
+    }
+
     let mut state = ChatState {
-        sampler: config.sampler_config(),
+        sampler,
         model: None,
         session: Session::new(),
         config,
@@ -200,6 +211,7 @@ fn run_command(cmd: Command, state: &mut ChatState) -> Flow {
             persist_sampler(state);
             renderer::info(&format!("top-k {v} — estratégia TopK"));
         }
+        Command::Seed(seed) => set_seed(seed, state),
         Command::Reset => {
             state.session.reset();
             if let Some(model) = state.model.as_ref() {
@@ -320,6 +332,32 @@ fn persist_sampler(state: &mut ChatState) {
     state.config.sync_sampler(&state.sampler);
     if let Err(e) = state.config.save(&state.paths) {
         renderer::error(&format!("falha ao salvar configuração: {e}"));
+    }
+}
+
+/// `/seed <n>` pins the RNG seed and persists it (reproducible output).
+/// `/seed random` (`seed == None`) unpins it: `config.toml` goes back to
+/// having no `sampling.seed`, and the *live* session also gets a freshly
+/// drawn seed right away, so the change is felt immediately rather than
+/// only on the next launch.
+fn set_seed(seed: Option<u64>, state: &mut ChatState) {
+    match seed {
+        Some(v) => {
+            state.sampler.seed = Some(v);
+            state.config.sampling.seed = Some(v);
+            match state.config.save(&state.paths) {
+                Ok(()) => renderer::info(&format!("seed fixa: {v} (reprodutível)")),
+                Err(e) => renderer::error(&format!("falha ao salvar configuração: {e}")),
+            }
+        }
+        None => {
+            state.sampler.seed = Some(sampler::random_seed());
+            state.config.sampling.seed = None;
+            match state.config.save(&state.paths) {
+                Ok(()) => renderer::info("seed aleatória — nova seed sorteada para esta sessão"),
+                Err(e) => renderer::error(&format!("falha ao salvar configuração: {e}")),
+            }
+        }
     }
 }
 
