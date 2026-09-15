@@ -116,6 +116,23 @@ src/
 - Mensagens de commit em inglês, no formato `<tipo>: <descrição curta>`.
 - Tipos: `feat`, `fix`, `improve`, `chore`, `docs`.
 
+## Convenção de sessão de testes
+
+Ao encerrar qualquer sessão de testes, restaurar `~/.candlecli/config.toml`
+para os valores padrão do projeto:
+
+```toml
+[sampling]
+temperature = 0.7
+top_p = 0.9
+top_k = 40
+strategy = "temperature"
+```
+
+Só a seção `[sampling]` — `[model]`, `[behavior]` e `[models]` não são
+tocados. Assim o config nunca fica sujo de `/temperature 0` ou similar
+usado durante testes.
+
 ## Não fazer
 
 - Não usar kalosm, llama.cpp, Ollama ou qualquer abstração externa.
