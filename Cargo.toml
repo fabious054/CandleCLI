@@ -22,6 +22,8 @@ tokenizers = "0.23"
 crossterm = "0.27"
 rustyline = "14"
 rand = "0.8"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
 
 # Build dependencies optimized even in the dev profile — candle's quantized
 # matmul kernels are unusably slow at opt-level 0. CandleCLI's own code stays

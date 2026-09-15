@@ -44,7 +44,7 @@ impl GgufFile {
 
         if arch != "qwen3" {
             return Err(Error::Model(format!(
-                "arquitetura não suportada: `{arch}` (esperado `qwen3`)"
+                "arquitetura não suportada: `{arch}`. Arquiteturas suportadas atualmente: qwen3."
             )));
         }
 

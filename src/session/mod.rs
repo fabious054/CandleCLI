@@ -4,6 +4,10 @@
 //! `/reset` clears it. It also assembles the model prompt by rendering the
 //! history in Qwen3's ChatML format — the bare crate API stays
 //! template-agnostic, so this wrapping lives here rather than in `model`.
+//!
+//! [`Session::render_prompt`] opens every prompt with the system turn from
+//! [`crate::prompts::SYSTEM_DEFAULT`] — the single place prompt text lives
+//! (see that module).
 
 /// Role of a single message in the history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,11 +54,14 @@ impl Session {
         self.history.clear();
     }
 
-    /// Render the full ChatML prompt for a new user turn: every past
-    /// message, then `new_user`, then the open assistant tag the model
-    /// continues from.
+    /// Render the full ChatML prompt for a new user turn: the system
+    /// prompt, every past message, then `new_user`, then the open
+    /// assistant tag the model continues from.
     pub fn render_prompt(&self, new_user: &str) -> String {
-        let mut out = String::new();
+        let mut out = format!(
+            "<|im_start|>system\n{}<|im_end|>\n",
+            crate::prompts::SYSTEM_DEFAULT
+        );
         for m in &self.history {
             out.push_str(&format!(
                 "<|im_start|>{}\n{}<|im_end|>\n",

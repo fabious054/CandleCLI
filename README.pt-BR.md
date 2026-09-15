@@ -16,17 +16,16 @@ sem Ollama, sem Python, sem llama.cpp. Só um binário.
 
 **Escopo 1 — concluído.** Inferência local do Qwen3 a partir de um arquivo
 GGUF, com streaming token a token, exposta como chat fluido no terminal e
-como API de crate:
+como API de crate. Forward pass: adapter sobre o Qwen3 quantizado do
+`candle_transformers` (ADR-0002, Path 1). Sampler: escrito à mão, Rust puro.
+Somente CPU.
 
-1. Chat fluido no terminal (header + prompt). ✅
-2. Comandos `/` para carregar modelo e configurar sampling. ✅
-3. Prompt do usuário lido no chat. ✅
-4. Arquivo GGUF carregado do disco (arquitetura Qwen3 validada). ✅
-5. Inferência via `candle` com streaming de tokens. ✅
-6. Tokens impressos conforme são gerados. ✅
-
-Forward pass: adapter sobre o Qwen3 quantizado do `candle_transformers`
-(ADR-0002, Path 1). Sampler: escrito à mão, Rust puro. Somente CPU.
+**Escopo 2 — concluído.** Configuração persistente em `~/.candlecli/`
+(criada e explicada na primeira execução), modelos registrados com nome
+curto, modelo padrão que carrega automaticamente, e tokens/s exibido após
+cada resposta. Toda conversa também abre com um prompt de sistema —
+centralizado, junto de futuros prompts, em
+[`src/prompts.rs`](src/prompts.rs).
 
 ## API do crate
 
@@ -49,17 +48,50 @@ for token in model.infer("prompt", &config)? {
 A inferência é streaming: `infer` retorna um iterador de tokens, nunca uma
 `String` pronta. Faça `.collect::<String>()` se quiser a resposta inteira.
 
-## Comandos da CLI (Escopo 1)
+## Comandos da CLI
 
 | Comando | Efeito |
 | --- | --- |
-| `/model <caminho>` | Carrega um arquivo GGUF |
+| `/model <nome\|caminho>` | Carrega um modelo registrado ou um arquivo GGUF |
+| `/model register <nome> <caminho>` | Registra um GGUF com um nome curto |
+| `/model default <nome>` | Define o modelo que carrega automaticamente |
+| `/model list` | Lista os modelos registrados |
 | `/temperature <valor>` | Define a temperatura de sampling |
 | `/top-p <valor>` | Define o top-p |
 | `/top-k <valor>` | Define o top-k |
 | `/reset` | Limpa o histórico da conversa |
 | `/help` | Lista os comandos |
 | `/quit`, `/exit` | Encerra |
+
+## `~/.candlecli/`
+
+Criado automaticamente na primeira execução:
+
+```
+~/.candlecli/
+  config.toml   # padrões de sampling, modelo padrão, modelos registrados
+  models/       # local recomendado (não obrigatório) para os GGUF registrados
+  memory/       # reservada para um sistema de memória futuro — vazia por ora
+```
+
+`config.toml` é TOML puro, seguro de editar manualmente:
+
+```toml
+[model]
+default = "qwen3"
+
+[sampling]
+temperature = 0.8
+top_p = 0.95
+top_k = 40
+strategy = "temperature"
+
+[behavior]
+max_new_tokens = 512
+
+[models]
+qwen3 = "~/.candlecli/models/Qwen3-0.6B-Q8_0.gguf"
+```
 
 ## Decisões de projeto
 

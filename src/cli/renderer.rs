@@ -69,6 +69,31 @@ pub fn end_reply() {
     let _ = execute!(io::stdout(), Print("\n"));
 }
 
+/// Print an uncolored line — first-run setup narration (`Primeira
+/// execução detectada.`, `→ Criando …`) that is neither success/error
+/// feedback nor model output.
+pub fn plain(text: &str) {
+    let _ = execute!(io::stdout(), Print(format!("{text}\n")));
+}
+
+/// Print a blank line — spacing around the first-run setup block and the
+/// default-model auto-load line.
+pub fn blank() {
+    let _ = execute!(io::stdout(), Print("\n"));
+}
+
+/// Print the tokens/s figure for the reply that just finished. One
+/// discreet line, in the header's muted color — a number, not decoration
+/// (dedicated visual treatment is a future escopo).
+pub fn token_rate(tokens_per_sec: f64) {
+    let _ = execute!(
+        io::stdout(),
+        SetForegroundColor(HEADER_COLOR),
+        Print(format!("▸ {tokens_per_sec:.1} tok/s\n")),
+        ResetColor,
+    );
+}
+
 /// Print a `/` command feedback line, e.g. `✓ Modelo carregado`.
 pub fn info(text: &str) {
     let _ = execute!(

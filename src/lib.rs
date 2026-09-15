@@ -10,7 +10,9 @@
 
 pub mod arch;
 pub mod cli;
+pub mod config;
 pub mod model;
+pub mod prompts;
 pub mod sampler;
 pub mod session;
 
@@ -28,6 +30,8 @@ pub enum Error {
     Tokenizer(String),
     /// Higher-level model problem (wrong architecture, empty prompt, …).
     Model(String),
+    /// `~/.candlecli/config.toml` read, write or (de)serialization failure.
+    Config(String),
 }
 
 impl std::fmt::Display for Error {
@@ -37,6 +41,7 @@ impl std::fmt::Display for Error {
             Error::Candle(e) => write!(f, "erro candle: {e}"),
             Error::Tokenizer(m) => write!(f, "erro de tokenização: {m}"),
             Error::Model(m) => write!(f, "{m}"),
+            Error::Config(m) => write!(f, "{m}"),
         }
     }
 }

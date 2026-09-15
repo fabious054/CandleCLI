@@ -18,9 +18,14 @@ pub mod top_p;
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use serde::{Deserialize, Serialize};
 
 /// Which sampling strategy [`build`] instantiates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// `Serialize`/`Deserialize` (snake_case) let this live directly as
+/// `sampling.strategy` in `~/.candlecli/config.toml` — see `crate::config`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SamplingStrategy {
     /// Deterministic argmax.
     Greedy,
@@ -50,6 +55,8 @@ pub struct SamplerConfig {
     pub strategy: SamplingStrategy,
     /// RNG seed, for reproducible sampling.
     pub seed: u64,
+    /// Generation budget: max tokens produced per `infer` call.
+    pub max_new_tokens: usize,
 }
 
 impl Default for SamplerConfig {
@@ -60,6 +67,7 @@ impl Default for SamplerConfig {
             top_k: 40,
             strategy: SamplingStrategy::Temperature,
             seed: 42,
+            max_new_tokens: 512,
         }
     }
 }

@@ -10,13 +10,18 @@ Binário auto-contido.
 - **Crate** — qualquer projeto Rust importa o `candlecli` como dependência e
   chama inferência direto no código. O AgentMesh é o primeiro consumidor.
 
-## Estado atual — Escopo 1 fechado
+## Estado atual — Escopo 2 (persistência + tok/s)
 
-Chat fluido no terminal, 7 comandos `/`, sampler próprio e pipeline de
-inferência com streaming — tudo implementado e **validado ao vivo** com um
-Qwen3-0.6B GGUF (5/5 critérios + smoke de contexto multi-turno). 14 testes
-unitários (7 sampler + 7 ThinkFilter) verdes. Relatório em
-`../scope-reports/escopo-1-candlecli.md`.
+Escopo 1 fechado — relatório em `../scope-reports/escopo-1-candlecli.md`.
+
+Escopo 2 adiciona `~/.candlecli/` (config, modelos registrados, memória
+reservada vazia): setup automático na primeira execução, `config.toml` em
+TOML/serde persistindo sampler + modelo padrão, `/model register`,
+`/model default`, `/model list`, e tokens/s exibido após cada resposta.
+Módulo novo: `config/` (`mod.rs` + `paths.rs`). Também novo: `prompts.rs`
+— constantes de prompt de sistema, centralizadas ali (nunca hardcoded em
+outro módulo); `session::render_prompt` injeta `SYSTEM_DEFAULT` como
+primeiro turno ChatML.
 
 Forward pass do Qwen3: **Path 1** (ADR-0002) — adapter sobre
 `candle_transformers::models::quantized_qwen3::ModelWeights`. Os arquivos
@@ -49,10 +54,11 @@ versão divergente não enxerga o trait.
   comandos `/`. Biblioteca de terminal ainda em aberto — ver
   `docs/adr/ADR-0001-cli-library.md`.
 
-## Comandos `/` do Escopo 1
+## Comandos `/`
 
-`/model <caminho>` · `/temperature <valor>` · `/top-p <valor>` ·
-`/top-k <valor>` · `/reset` · `/help` · `/quit` | `/exit`
+`/model <nome|caminho>` · `/model register <nome> <caminho>` ·
+`/model default <nome>` · `/model list` · `/temperature <valor>` ·
+`/top-p <valor>` · `/top-k <valor>` · `/reset` · `/help` · `/quit` | `/exit`
 
 ## Estrutura de módulos
 
@@ -64,6 +70,10 @@ crescer.
 src/
   main.rs             ponto de entrada; inicializa a CLI
   lib.rs              interface pública do crate
+  prompts.rs          prompts de sistema — centralizados, nunca hardcoded
+  config/
+    mod.rs            CandleConfig: carregar, salvar, defaults
+    paths.rs          ~/.candlecli, caminhos canônicos, criação de diretórios
   model/
     mod.rs            trait Model, orquestra carregamento
     gguf.rs           parser e loader do formato GGUF
@@ -107,3 +117,8 @@ src/
 - Não implementar lógica de inferência antes da estrutura estar fechada.
 - Não escolher a biblioteca de CLI sem passar pelo ADR.
 - Não reabrir as decisões técnicas fechadas acima.
+- Não criar `~/.candlecli/history/`, `logs/` ou outras pastas especulativas
+  — só o que é usado agora (`models/`, `memory/` vazia).
+- Não implementar o sistema de memória — `memory/` existe mas fica vazia.
+- Não modificar a interface pública de `infer()`.
+- Não iniciar o Path 2 (forward pass do Qwen3 em `candle-nn` puro).

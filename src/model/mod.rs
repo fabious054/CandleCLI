@@ -22,9 +22,6 @@ use crate::arch::{qwen::Qwen, Architecture};
 use crate::sampler::{self, Sampler, SamplerConfig};
 use crate::{Error, Result};
 
-/// Upper bound on generated tokens per `infer` call (Escopo 1: fixed).
-const MAX_NEW_TOKENS: usize = 512;
-
 /// Contract satisfied by any loaded model, regardless of architecture.
 ///
 /// Kept minimal on purpose; a single architecture (Qwen3) is in scope now,
@@ -127,7 +124,10 @@ impl CandleModel {
             offset: 0,
             generated: Vec::new(),
             decoded: String::new(),
-            remaining: MAX_NEW_TOKENS,
+            // From `~/.candlecli/config.toml`'s `[behavior] max_new_tokens`
+            // (see `crate::config`), threaded in via `SamplerConfig` rather
+            // than as a separate `infer` parameter.
+            remaining: config.max_new_tokens,
             done: false,
         }))
     }

@@ -38,26 +38,45 @@ so inference is usable without a full release build. CandleCLI's own code is
 still built unoptimized and fully debuggable. A release build is still faster;
 use it for anything performance-sensitive.
 
-**3. Inside the chat**
+**3. First run**
+
+The first time `candlecli` runs it creates `~/.candlecli/` (config,
+`models/`, an empty `memory/` reserved for a future memory system) and
+prints what it did. From then on that block doesn't show again — see
+[`~/.candlecli/`](../README.md#candlecli) in the README for the layout and
+`config.toml` format.
+
+**4. Inside the chat**
 
 ```
-/model models/Qwen3-0.6B-Q8_0.gguf   # load the model (~6-7s on first run)
-/help                                  # list all available commands
+/model register qwen3 models/Qwen3-0.6B-Q8_0.gguf   # register once
+/model default qwen3                                 # optional: auto-load next time
+/model qwen3                                          # load by name (~6-7s on first load)
+/help                                                  # list all available commands
 ```
 
-Then type any prompt and press Enter.
+A bare path still works too: `/model models/Qwen3-0.6B-Q8_0.gguf`.
+
+Then type any prompt and press Enter. A `▸ N.N tok/s` line follows each
+reply.
 
 **Available commands**
 
 | Command | Description |
 |---|---|
-| `/model <path>` | Load a GGUF model file |
+| `/model <name\|path>` | Load a registered model or a GGUF file path |
+| `/model register <name> <path>` | Register a GGUF file under a short name |
+| `/model default <name>` | Set the model that auto-loads on startup |
+| `/model list` | List registered models |
 | `/temperature <value>` | Set sampling temperature (0 = greedy) |
 | `/top-p <value>` | Set top-p sampling threshold |
 | `/top-k <value>` | Set top-k sampling limit |
 | `/reset` | Clear conversation history and KV cache |
 | `/help` | List all commands |
 | `/exit` or `/quit` | Exit CandleCLI |
+
+`/temperature`, `/top-p` and `/top-k` persist to `config.toml` immediately —
+they survive a restart.
 
 ---
 
@@ -80,6 +99,10 @@ CandleCLI/
   src/
     main.rs             # entry point — initialises the CLI
     lib.rs              # public crate interface
+    prompts.rs          # system prompt constants — never hardcoded elsewhere
+    config/
+      mod.rs            # CandleConfig: load/save config.toml, defaults
+      paths.rs          # ~/.candlecli, canonical paths, directory setup
     model/
       mod.rs            # CandleModel: load, infer, reset_cache
       gguf.rs           # GGUF file reader and architecture validation
