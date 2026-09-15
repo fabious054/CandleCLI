@@ -22,6 +22,13 @@ use crate::arch::{qwen::Qwen, Architecture};
 use crate::sampler::{self, Sampler, SamplerConfig};
 use crate::{Error, Result};
 
+/// Max content tokens allowed inside a `<think>…</think>` block before it
+/// is force-closed, so the rest of `max_new_tokens` always goes to the
+/// visible answer instead of possibly being spent entirely on reasoning.
+/// 256 is half of the default `max_new_tokens` (512) — no measured reason
+/// to prefer another value yet; revisit with data if it ever needs to move.
+const THINKING_BUDGET: usize = 256;
+
 /// Contract satisfied by any loaded model, regardless of architecture.
 ///
 /// Kept minimal on purpose; a single architecture (Qwen3) is in scope now,
@@ -55,6 +62,11 @@ pub struct CandleModel {
     tokenizer: Arc<Tokenizer>,
     /// Token ids that end generation (EOS, `<|im_end|>`, `<|endoftext|>`).
     stop_ids: Vec<u32>,
+    /// `<think>` / `</think>` special token ids, if the vocabulary has them
+    /// (it does for Qwen3). `None` disables the thinking-budget cutoff —
+    /// a safe no-op for a model without these tokens.
+    think_open_id: Option<u32>,
+    think_close_id: Option<u32>,
 }
 
 impl CandleModel {
@@ -86,6 +98,9 @@ impl CandleModel {
             }
         }
 
+        let think_open_id = tokenizer.token_to_id("<think>");
+        let think_close_id = tokenizer.token_to_id("</think>");
+
         // Consumes `content` and reads tensors through `reader`.
         let arch = Qwen::from_gguf(content, &mut reader, &Device::Cpu)?;
 
@@ -93,6 +108,8 @@ impl CandleModel {
             arch: Arc::new(Mutex::new(arch)),
             tokenizer: Arc::new(tokenizer),
             stop_ids,
+            think_open_id,
+            think_close_id,
         })
     }
 
@@ -120,6 +137,10 @@ impl CandleModel {
             tokenizer: Arc::clone(&self.tokenizer),
             sampler: sampler::build(config),
             stop_ids: self.stop_ids.clone(),
+            think_open_id: self.think_open_id,
+            think_close_id: self.think_close_id,
+            in_think: false,
+            think_tokens_used: 0,
             tokens,
             offset: 0,
             generated: Vec::new(),
@@ -157,11 +178,23 @@ impl Model for CandleModel {
 /// context. Decoding is done by re-decoding the full generated sequence and
 /// emitting the newly appended suffix — the standard trick for byte-level
 /// BPE, where one character may span several tokens.
+///
+/// Also enforces [`THINKING_BUDGET`]: if the model is still inside
+/// `<think>…</think>` after that many content tokens, the next token is
+/// forced to `</think>` instead of whatever the sampler picked — see
+/// `next`. This runs at the token-id level, not on decoded text, so it
+/// works whether or not the CLI's `ThinkFilter` is even in the picture.
 struct TokenStream {
     arch: Arc<Mutex<Qwen>>,
     tokenizer: Arc<Tokenizer>,
     sampler: Box<dyn Sampler>,
     stop_ids: Vec<u32>,
+    think_open_id: Option<u32>,
+    think_close_id: Option<u32>,
+    /// Whether the last emitted token left us inside a think block.
+    in_think: bool,
+    /// Content tokens emitted since the current think block opened.
+    think_tokens_used: usize,
     /// Full context: prompt tokens followed by generated tokens.
     tokens: Vec<u32>,
     /// KV-cache position = number of tokens already fed.
@@ -207,10 +240,30 @@ impl Iterator for TokenStream {
         };
         self.offset += input.len();
 
-        let next_id = self.sampler.sample(&logits);
+        let mut next_id = self.sampler.sample(&logits);
+
+        // Thinking-budget cutoff: once we've spent it without seeing
+        // `</think>`, override the sampled token with a forced close. The
+        // model then continues from a real `</think>` in its context on
+        // the next step, exactly as if it had chosen to close on its own.
+        if self.in_think && self.think_tokens_used >= THINKING_BUDGET {
+            if let Some(close_id) = self.think_close_id {
+                next_id = close_id;
+            }
+        }
+
         if self.stop_ids.contains(&next_id) {
             self.done = true;
             return None;
+        }
+
+        if Some(next_id) == self.think_open_id {
+            self.in_think = true;
+            self.think_tokens_used = 0;
+        } else if Some(next_id) == self.think_close_id {
+            self.in_think = false;
+        } else if self.in_think {
+            self.think_tokens_used += 1;
         }
 
         self.tokens.push(next_id);

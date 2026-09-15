@@ -339,6 +339,7 @@ fn reply(user_msg: &str, state: &mut ChatState) {
             let mut filter = renderer::ThinkFilter::new();
             let mut answer = String::new();
             let mut generated = 0usize;
+            let mut errored = false;
             let started = Instant::now();
 
             for token in stream {
@@ -352,6 +353,7 @@ fn reply(user_msg: &str, state: &mut ChatState) {
                     }
                     Err(e) => {
                         renderer::error(&format!("erro durante a geração: {e}"));
+                        errored = true;
                         break;
                     }
                 }
@@ -363,6 +365,16 @@ fn reply(user_msg: &str, state: &mut ChatState) {
                 renderer::token(&rest);
             }
             renderer::end_reply();
+
+            // Generation can legitimately produce zero visible characters
+            // (e.g. it stayed inside an unterminated <think> block despite
+            // the budget cutoff above, or stopped immediately) — say so
+            // instead of leaving only a tok/s line with no explanation.
+            if answer.is_empty() && !errored {
+                renderer::error(
+                    "resposta vazia — o modelo esgotou o orçamento de tokens ainda \"pensando\"",
+                );
+            }
 
             let secs = elapsed.as_secs_f64();
             if generated > 0 && secs > 0.0 {
