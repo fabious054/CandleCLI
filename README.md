@@ -24,7 +24,23 @@ Sampler: hand-written, pure Rust. CPU only.
 explained on first run), models registered under a short name, a default
 model that auto-loads on startup, and a tokens/s figure after every reply.
 Every conversation also opens with a system prompt — centralized, along with
-any future ones, in [`src/prompts.rs`](src/prompts.rs).
+any future ones, in [`src/prompts.rs`](src/prompts.rs). The RNG seed is
+random per session by default (`/seed <value>` pins it for reproducible
+output, `/seed random` clears it again).
+
+**Escopo 3 — done.** The Qwen3 forward pass is now hand-written on
+`candle-core`/`candle-nn` primitives (Path 2, ADR-0002) — embeddings,
+RMSNorm, RoPE, grouped-query attention, SwiGLU MLP and the KV cache are all
+our own code, validated piece by piece against `candle_transformers`'
+quantized Qwen3 as a logit oracle (ADR-0003 documents the one relaxed
+tolerance, in the end-to-end integration test only). `candle_transformers`
+remains a dependency, but only as that test-time oracle — the CLI no
+longer calls into it at runtime. Current throughput is **~5.3 tok/s** on
+the Escopo 1 hand-written path, versus ~18 tok/s on the old Path 1 adapter
+(which used `candle_transformers`' fused, CPU-optimized attention kernels).
+Correctness was Escopo 3's goal, not performance — closing that gap
+(fused/optimized kernels for our own attention and MLP) is expected to be a
+future scope.
 
 ## Crate API
 
@@ -58,6 +74,8 @@ finished `String`. Call `.collect::<String>()` if you want the whole reply.
 | `/temperature <value>` | Set sampling temperature |
 | `/top-p <value>` | Set top-p |
 | `/top-k <value>` | Set top-k |
+| `/seed <value>` | Pin the RNG seed (reproducible output) |
+| `/seed random` | Unpin it (fresh seed every session) |
 | `/reset` | Clear conversation history |
 | `/help` | List commands |
 | `/quit`, `/exit` | Leave |
@@ -100,6 +118,9 @@ qwen3 = "~/.candlecli/models/Qwen3-0.6B-Q8_0.gguf"
 - **Tokenization**: `candle`'s native tokenizer; no custom BPE.
 - **Sampling**: hand-written in pure Rust (not `candle`'s sampler). Greedy,
   temperature, top-p and top-k ship in Escopo 1.
+- **Forward pass**: hand-written on `candle-core`/`candle-nn` primitives —
+  embeddings, RMSNorm, RoPE, GQA attention, SwiGLU MLP, KV cache
+  (`docs/adr/ADR-0002-qwen3-inference.md`, Path 2, Escopo 3).
 - **CLI**: a plain chat loop — no menus, panels or full-screen TUI. Built on
   `crossterm` + `rustyline` (`docs/adr/ADR-0001-cli-library.md`).
 

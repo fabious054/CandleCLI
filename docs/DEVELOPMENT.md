@@ -71,12 +71,16 @@ reply.
 | `/temperature <value>` | Set sampling temperature (0 = greedy) |
 | `/top-p <value>` | Set top-p sampling threshold |
 | `/top-k <value>` | Set top-k sampling limit |
+| `/seed <value>` | Pin the RNG seed (reproducible output) |
+| `/seed random` | Unpin it (fresh seed every session) |
 | `/reset` | Clear conversation history and KV cache |
 | `/help` | List all commands |
 | `/exit` or `/quit` | Exit CandleCLI |
 
 `/temperature`, `/top-p` and `/top-k` persist to `config.toml` immediately —
-they survive a restart.
+they survive a restart. `/seed <value>` also persists (as `sampling.seed`);
+`/seed random` removes that key again. The other three sampling commands
+never touch `sampling.seed` — only `/seed` writes it.
 
 ---
 
@@ -109,10 +113,10 @@ CandleCLI/
     arch/
       mod.rs            # Architecture trait
       qwen/
-        mod.rs          # Qwen3 adapter over candle_transformers (Path 1)
-        attention.rs    # SEAM — reserved for Path 2 (future escopo)
-        mlp.rs          # SEAM — reserved for Path 2 (future escopo)
-        layers.rs       # SEAM — reserved for Path 2 (future escopo)
+        mod.rs          # Qwen3 wrapper over layers::Model (Path 2, ADR-0002)
+        attention.rs    # Attention (GQA), RotaryEmbedding (RoPE), KvCache
+        mlp.rs          # Mlp — SwiGLU feed-forward
+        layers.rs       # TokenEmbedding, RmsNorm, Layer, Model (28-layer loop)
     sampler/
       mod.rs            # SamplerConfig, SamplingStrategy, Sampler trait
       greedy.rs         # argmax
@@ -135,6 +139,18 @@ CandleCLI/
   README.md             # English readme (links to README.pt-BR.md)
   README.pt-BR.md       # Portuguese readme
 ```
+
+**Path 2 (Escopo 3)**: `arch/qwen/{attention,mlp,layers}.rs` hold the real
+hand-written Qwen3 forward pass — no more adapter over
+`candle_transformers`. `candle_transformers` is still a dependency, but only
+as the logit oracle each piece's `#[cfg(test)]` code validates against
+(never referenced from non-test code). Current throughput is ~5.3 tok/s,
+down from ~18 tok/s on the old Path 1 adapter, since our attention/MLP
+don't yet use the fused, CPU-optimized kernels `candle_transformers` ships
+(flash-attention-style decode, interleaved KV cache layout). Escopo 3's
+goal was correctness, not speed — see
+[docs/adr/ADR-0002-qwen3-inference.md](adr/ADR-0002-qwen3-inference.md) and
+[docs/adr/ADR-0003-path2-integration-threshold.md](adr/ADR-0003-path2-integration-threshold.md).
 
 ---
 

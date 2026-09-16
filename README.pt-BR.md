@@ -25,7 +25,23 @@ Somente CPU.
 curto, modelo padrão que carrega automaticamente, e tokens/s exibido após
 cada resposta. Toda conversa também abre com um prompt de sistema —
 centralizado, junto de futuros prompts, em
-[`src/prompts.rs`](src/prompts.rs).
+[`src/prompts.rs`](src/prompts.rs). A seed do RNG é aleatória por sessão
+por padrão (`/seed <valor>` fixa para saída reprodutível, `/seed random`
+remove a fixação).
+
+**Escopo 3 — concluído.** O forward pass do Qwen3 agora é escrito à mão
+sobre primitivos do `candle-core`/`candle-nn` (Path 2, ADR-0002) —
+embeddings, RMSNorm, RoPE, atenção com grouped-query attention, MLP com
+SwiGLU e o KV cache são código nosso, validados peça por peça contra o
+Qwen3 quantizado do `candle_transformers` como oráculo de logits (o
+ADR-0003 documenta a única tolerância relaxada, só no teste de integração
+de ponta a ponta). O `candle_transformers` continua como dependência, mas
+só como esse oráculo de teste — a CLI não chama mais nele em produção. A
+taxa atual é de **~5.3 tok/s** no caminho escrito à mão, contra ~18 tok/s
+no antigo adapter Path 1 (que usava os kernels de atenção fundidos e
+otimizados para CPU do `candle_transformers`). Correção era o objetivo do
+Escopo 3, não performance — fechar essa diferença (kernels otimizados
+para nossa própria atenção e MLP) é esperado como um escopo futuro.
 
 ## API do crate
 
@@ -59,6 +75,8 @@ A inferência é streaming: `infer` retorna um iterador de tokens, nunca uma
 | `/temperature <valor>` | Define a temperatura de sampling |
 | `/top-p <valor>` | Define o top-p |
 | `/top-k <valor>` | Define o top-k |
+| `/seed <valor>` | Fixa a seed do RNG (saída reprodutível) |
+| `/seed random` | Remove a fixação (seed aleatória por sessão) |
 | `/reset` | Limpa o histórico da conversa |
 | `/help` | Lista os comandos |
 | `/quit`, `/exit` | Encerra |
@@ -101,6 +119,10 @@ qwen3 = "~/.candlecli/models/Qwen3-0.6B-Q8_0.gguf"
 - **Tokenização**: tokenizador nativo do `candle`; sem BPE próprio.
 - **Sampling**: escrito à mão em Rust puro (não o sampler do `candle`).
   Greedy, temperatura, top-p e top-k no Escopo 1.
+- **Forward pass**: escrito à mão sobre primitivos do
+  `candle-core`/`candle-nn` — embeddings, RMSNorm, RoPE, atenção GQA, MLP
+  com SwiGLU, KV cache (`docs/adr/ADR-0002-qwen3-inference.md`, Path 2,
+  Escopo 3).
 - **CLI**: um loop de chat simples — sem menus, painéis ou TUI de tela
   cheia. Construída sobre `crossterm` + `rustyline`
   (`docs/adr/ADR-0001-cli-library.md`).

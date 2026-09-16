@@ -10,22 +10,39 @@ Binário auto-contido.
 - **Crate** — qualquer projeto Rust importa o `candlecli` como dependência e
   chama inferência direto no código. O AgentMesh é o primeiro consumidor.
 
-## Estado atual — Escopo 2 (persistência + tok/s)
+## Estado atual — Escopo 3 (Path 2: forward pass próprio)
 
 Escopo 1 fechado — relatório em `../scope-reports/escopo-1-candlecli.md`.
+Escopo 2 fechado — relatório em `../scope-reports/escopo-2-candlecli.md`.
+Escopo 3 fechado — relatório em `../scope-reports/escopo-3-candlecli.md`.
 
-Escopo 2 adiciona `~/.candlecli/` (config, modelos registrados, memória
+Escopo 2 trouxe `~/.candlecli/` (config, modelos registrados, memória
 reservada vazia): setup automático na primeira execução, `config.toml` em
 TOML/serde persistindo sampler + modelo padrão, `/model register`,
 `/model default`, `/model list`, e tokens/s exibido após cada resposta.
-Módulo novo: `config/` (`mod.rs` + `paths.rs`). Também novo: `prompts.rs`
-— constantes de prompt de sistema, centralizadas ali (nunca hardcoded em
-outro módulo); `session::render_prompt` injeta `SYSTEM_DEFAULT` como
-primeiro turno ChatML.
+Módulo `config/` (`mod.rs` + `paths.rs`). `prompts.rs` — constantes de
+prompt de sistema, centralizadas ali (nunca hardcoded em outro módulo);
+`session::render_prompt` injeta `SYSTEM_DEFAULT` como primeiro turno
+ChatML. A seed do RNG (`SamplerConfig.seed: Option<u64>`) é aleatória por
+sessão por padrão — `None` vira um valor sorteado uma vez na CLI e mantido
+pra sessão inteira; `/seed <valor>` fixa (reprodutível), `/seed random`
+libera de novo. `/temperature`, `/top-p`, `/top-k` nunca tocam a seed
+persistida — só `/seed` escreve `sampling.seed` em `config.toml`.
 
-Forward pass do Qwen3: **Path 1** (ADR-0002) — adapter sobre
-`candle_transformers::models::quantized_qwen3::ModelWeights`. Os arquivos
-`arch/qwen/{attention,mlp,layers}.rs` são seams vazios para o Path 2.
+Forward pass do Qwen3: **Path 2** (ADR-0002, implementado no Escopo 3) —
+escrito à mão sobre `candle-core`/`candle-nn`: `arch/qwen/layers.rs`
+(`TokenEmbedding`, `RmsNorm`, `Layer`, `Model` — o loop de 28 camadas),
+`arch/qwen/attention.rs` (`Attention` com GQA, `RotaryEmbedding`,
+`KvCache`), `arch/qwen/mlp.rs` (`Mlp`, SwiGLU). `candle_transformers`
+continua como dependência, mas só como oráculo de logits em código
+`#[cfg(test)]` — nunca mais chamado em produção. Cada peça validada
+isoladamente contra o oráculo a 1e-4; o teste de integração de ponta a
+ponta usa uma tolerância relaxada (0.24) mais uma checagem de argmax —
+motivo documentado em `docs/adr/ADR-0003-path2-integration-threshold.md`
+(o oráculo cai pra F16 nas tabelas de RoPE quando `general.dtype` não
+existe no GGUF; nossa implementação roda em F32, mais precisa). Throughput
+atual: ~5.3 tok/s (era ~18 tok/s no Path 1) — Escopo 3 focou em correção,
+não performance; otimização é dívida técnica pra escopo futuro.
 
 Sampler: implementação própria em Rust puro, quatro estratégias, seleção via
 `SamplerConfig.strategy`.
@@ -58,7 +75,8 @@ versão divergente não enxerga o trait.
 
 `/model <nome|caminho>` · `/model register <nome> <caminho>` ·
 `/model default <nome>` · `/model list` · `/temperature <valor>` ·
-`/top-p <valor>` · `/top-k <valor>` · `/reset` · `/help` · `/quit` | `/exit`
+`/top-p <valor>` · `/top-k <valor>` · `/seed <valor>` · `/seed random` ·
+`/reset` · `/help` · `/quit` | `/exit`
 
 ## Estrutura de módulos
 
@@ -80,10 +98,10 @@ src/
   arch/
     mod.rs            trait Architecture
     qwen/
-      mod.rs          implementação Qwen completa
-      attention.rs    mecanismo de atenção
-      mlp.rs          camadas MLP
-      layers.rs       bloco transformer
+      mod.rs          Qwen: wrapper sobre layers::Model (Path 2, ADR-0002)
+      attention.rs    Attention (GQA), RotaryEmbedding (RoPE), KvCache
+      mlp.rs          Mlp — feed-forward SwiGLU
+      layers.rs       TokenEmbedding, RmsNorm, Layer, Model (loop de 28 camadas)
   sampler/
     mod.rs            trait Sampler, SamplerConfig
     greedy.rs
@@ -144,4 +162,6 @@ usado durante testes.
   — só o que é usado agora (`models/`, `memory/` vazia).
 - Não implementar o sistema de memória — `memory/` existe mas fica vazia.
 - Não modificar a interface pública de `infer()`.
-- Não iniciar o Path 2 (forward pass do Qwen3 em `candle-nn` puro).
+- Não remover `candle_transformers` das dependências — é o oráculo de
+  logits usado pelos testes do Path 2.
+- Não usar `candle_transformers` fora de código `#[cfg(test)]`.
